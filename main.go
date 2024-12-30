@@ -67,9 +67,9 @@ func main() {
 	// Initialize the HTTP router
 	router := gin.Default()
 
-	store := persistence.NewInMemoryStore(time.Duration(time.Now().Day()))
+	store := persistence.NewInMemoryStore(time.Hour)
 
-	router.GET("/mockdata/samples", cache.CachePage(store, time.Duration(time.Now().Day()), func(c *gin.Context) {
+	router.GET("/mockdata/samples", cache.CachePage(store, time.Hour, func(c *gin.Context) {
 		// Get the size query parameter
 		sizeParam := c.DefaultQuery("size", "128") // Default size is 128
 		size, err := strconv.Atoi(sizeParam)
@@ -126,7 +126,7 @@ func main() {
 		c.JSON(http.StatusOK, dummyData)
 	}))
 	// Route to return mock data for a specific project and ID
-	router.Any("/c/:projectid/:id", cache.CachePage(store, time.Duration(time.Now().Day()), func(c *gin.Context) {
+	router.Any("/c/:projectid/:id", cache.CachePage(store, time.Hour, func(c *gin.Context) {
 
 		method := c.Request.Method
 		log.Printf("Request method: %s, Path: %s", method, c.Request.URL.Path)
