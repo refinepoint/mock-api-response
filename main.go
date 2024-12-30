@@ -198,7 +198,7 @@ func main() {
 	})
 
 	// Start the HTTP server
-	if err := router.Run(":8080"); err != nil {
+	if err := router.Run(":8000"); err != nil {
 		log.Fatalf("Unable to start HTTP server: %v\n", err)
 	}
 }
