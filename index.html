@@ -48,7 +48,7 @@
     function getProducts(mode) {
         let lastResult = null;
         const promises = [];
-        for (let i = 0; i < 200; i++) {
+       
             promises.push(
                 fetch(`/products/${mode}`)
                     .then(response => response.json())
@@ -57,7 +57,7 @@
                         console.log({elapsed, average});
                     })
             );
-        }
+       
         Promise.all(promises)
             .then(() => {
                 console.log(`Last result for ${mode}:`, lastResult);

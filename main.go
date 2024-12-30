@@ -2,53 +2,60 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"log"
 	"net/http"
+	"os"
+	"strconv"
+	"strings"
 	"time"
 
-	"github.com/kienmatu/go-connection-pooling/model"
-
+	"github.com/gin-contrib/cache"
+	"github.com/gin-contrib/cache/persistence"
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
+	"github.com/joho/godotenv"
+	"github.com/kienmatu/go-connection-pooling/mockdata"
 	_ "github.com/lib/pq"
 )
 
-var allTime int64 = 0
-var allCount int64 = 0
+type MockData struct {
+	Method string          `json:"method"`
+	Data   json.RawMessage `json:"data"`
+}
 
-var newTime int64 = 0
-var newCount int64 = 0
-
-var poolTime int64 = 0
-var poolCount int64 = 0
-
-var dsn = "postgres://postgres:password1@localhost:5433/postgres?sslmode=disable"
-var query = "SELECT id, name, price, description FROM products limit 1000"
-
-func scanProducts(rows *sql.Rows) ([]*model.Product, error) {
+// Function to scan mock data rows
+func scanMockData(rows *sql.Rows) ([]*MockData, error) {
 	defer rows.Close()
 
-	products := make([]*model.Product, 0)
+	mockData := make([]*MockData, 0)
 	for rows.Next() {
-		var p model.Product
-		err := rows.Scan(&p.ID, &p.Name, &p.Price, &p.Description)
+		var m MockData
+		//err := rows.Scan(&m.ID, &m.CustomDomain, &m.ProjectID, &m.CreatedBy, &m.Method, &m.Data)
+		err := rows.Scan(&m.Data)
 		if err != nil {
 			return nil, err
 		}
-		products = append(products, &p)
+
+		mockData = append(mockData, &m)
+
 	}
-	return products, nil
+	return mockData, nil
 }
 
 func main() {
-	// Postgres allows 100 connections in default
-	// Set the maximum number of idle connections in the pool
+
+	err := godotenv.Load(".env")
+
+	if err != nil {
+		log.Fatal("Unable to load environment proeprties")
+	}
+
+	// Postgres connection pooling setup
 	idleConn := 4
-	// Set the maximum number of connections in the pool
 	maxConnections := 4
-	// Set the maximum amount of time a connection can be reused
 	maxConnLifetime := 2 * time.Minute
-	poolConn, err := sqlx.Open("postgres", dsn)
+	poolConn, err := sqlx.Open("postgres", os.Getenv("DB_URL"))
 	if err != nil {
 		log.Fatalf("Unable to connect to database: %v\n", err)
 	}
@@ -57,83 +64,152 @@ func main() {
 	poolConn.SetMaxIdleConns(idleConn)
 	poolConn.SetConnMaxLifetime(maxConnLifetime)
 
-	// normal connection
-	conn, err := sqlx.Open("postgres", dsn)
-	if err != nil {
-		log.Fatalf("Unable to connect to database: %v\n", err)
-	}
-	// default will be 2 idle connections
-	// so set it to 1 to simulate
-	conn.SetMaxIdleConns(1)
-
 	// Initialize the HTTP router
 	router := gin.Default()
-	router.StaticFile("/", "./index.html")
 
-	router.GET("/products/normal", func(c *gin.Context) {
-		startTime := time.Now()
+	store := persistence.NewInMemoryStore(time.Duration(time.Now().Day()))
 
-		// Query the database for all products
-		rows, err := conn.Query(query)
+	router.GET("/mockdata/samples", cache.CachePage(store, time.Duration(time.Now().Day()), func(c *gin.Context) {
+		// Get the size query parameter
+		sizeParam := c.DefaultQuery("size", "128") // Default size is 128
+		size, err := strconv.Atoi(sizeParam)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid size parameter"})
 			return
-		}
-		products, err := scanProducts(rows)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		elapsed := time.Since(startTime).Microseconds()
-		allCount++
-		allTime += elapsed
-		c.JSON(http.StatusOK, model.Response{Elapsed: elapsed, Average: float64(allTime / allCount), Products: products})
-	})
-
-	router.GET("/products/pooled", func(c *gin.Context) {
-		startTime := time.Now()
-		// Query the database for all products
-		rows, err := poolConn.Query(query)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		products, err := scanProducts(rows)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		elapsed := time.Since(startTime).Microseconds()
-		poolCount++
-		poolTime += elapsed
-		c.JSON(http.StatusOK, model.Response{Elapsed: elapsed, Average: float64(poolTime / poolCount), Products: products})
-	})
-
-	router.GET("/products/new", func(c *gin.Context) {
-		startTime := time.Now()
-		conn, err := sqlx.Open("postgres", dsn)
-		if err != nil {
-			log.Fatalf("Unable to connect to database: %v\n", err)
 		}
 
-		rows, err := conn.Query(query)
+		// Get the delay query parameter
+		delayParam := c.DefaultQuery("delay", "0") // Default delay is 0 (no delay)
+		delay, err := strconv.Atoi(delayParam)
+		if err != nil || delay < 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid delay parameter"})
+			return
+		}
+
+		// Get the jsonFields query parameter
+		jsonFieldsParam := c.DefaultQuery("jsonFields", "") // Default to empty (no fields specified)
+		jsonFields := strings.Split(jsonFieldsParam, ",")   // Split into a slice
+		for i, field := range jsonFields {
+			jsonFields[i] = strings.TrimSpace(field) // Trim spaces around each field
+		}
+
+		// Create a map for additional query parameters
+		additionalParams := make(map[string]string)
+
+		// Loop through all query parameters manually
+		for paramName, values := range c.Request.URL.Query() {
+			// Skip common parameters
+			if paramName == "size" || paramName == "delay" || paramName == "jsonFields" {
+				continue
+			}
+			if !isValidParamName(values[0]) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid query parameter: " + paramName})
+				return
+			}
+			additionalParams[paramName] = values[0] // Single value, store directly
+
+		}
+
+		// Introduce the specified delay
+		if delay > 0 {
+			time.Sleep(time.Duration(delay) * time.Millisecond) // Delay in milliseconds
+		}
+
+		// Generate custom dummy JSON based on the specified fields and size
+		dummyData, err := mockdata.GenerateCustomJSON(size, jsonFields, additionalParams)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		products, err := scanProducts(rows)
+
+		// Return the generated custom dummy data as JSON
+		c.JSON(http.StatusOK, dummyData)
+	}))
+	// Route to return mock data for a specific project and ID
+	router.Any("/c/:projectid/:id", cache.CachePage(store, time.Duration(time.Now().Day()), func(c *gin.Context) {
+
+		method := c.Request.Method
+		log.Printf("Request method: %s, Path: %s", method, c.Request.URL.Path)
+
+		projectID := c.Param("projectid")
+		id := c.Param("id")
+
+		query := "SELECT data FROM refinepoint.mockdata WHERE projectid = $1 AND id = $2 AND method  = upper( $3)"
+		rows, err := poolConn.Query(query, projectID, id, method)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		elapsed := time.Since(startTime).Microseconds()
-		newCount++
-		newTime += elapsed
-		c.JSON(http.StatusOK, model.Response{Elapsed: elapsed, Average: float64(newTime / newCount), Products: products})
+
+		mockData, err := scanMockData(rows)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		if len(mockData) == 0 {
+			c.JSON(http.StatusNotFound, gin.H{"error": "No such url found"})
+			return
+		}
+
+		c.Data(http.StatusOK, "application/json", mockData[0].Data)
+	}))
+
+	// Route to create mock data
+	router.POST("/mockdata", func(c *gin.Context) {
+		projectID := c.DefaultQuery("projectid", "")
+		method := c.DefaultQuery("method", "put")
+		methodQuery := strings.ToUpper(method)
+
+		if projectID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "ProjectID is required"})
+			return
+		}
+
+		// Get the created_by value from the request header
+		// Get the created_by value from the request header
+		createdBy := c.GetHeader("Created-By")
+
+		// Use the default value if the header is missing
+		if createdBy == "" {
+			createdBy = "default@refinepoint.com"
+		}
+
+		// Bind the entire request body (without wrapping in a data block)
+		var requestBody json.RawMessage
+		if err := c.ShouldBindJSON(&requestBody); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		// Validate that the 'data' field is valid JSON
+
+		// Insert into the mockdata table and get the generated id
+		var newID string
+		query := "INSERT INTO refinepoint.mockdata (customdomain, projectid, created_by, method, data) VALUES (NULL, $1, $2, $3, $4) RETURNING id"
+		err := poolConn.QueryRow(query, projectID, createdBy, methodQuery, requestBody).Scan(&newID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		// Return the generated ID in the response
+		c.JSON(http.StatusCreated, gin.H{"message": "Mock data created", "id": newID})
 	})
 
 	// Start the HTTP server
 	if err := router.Run(":8080"); err != nil {
 		log.Fatalf("Unable to start HTTP server: %v\n", err)
 	}
+}
+
+// Function to check if the query parameter name is valid
+func isValidParamName(paramName string) bool {
+	validParams := []string{"uuid", "uid", "number", "decimal", "float", "long", "integer", "text", "string", "phone", "boolean"}
+	for _, valid := range validParams {
+		if paramName == valid {
+			return true
+		}
+	}
+	return false
 }
