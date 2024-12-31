@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-contrib/cache"
 	"github.com/gin-contrib/cache/persistence"
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
 	"github.com/joho/godotenv"
@@ -66,8 +67,30 @@ func main() {
 
 	// Initialize the HTTP router
 	router := gin.Default()
-
+	router.Use(cors.New(cors.Config{
+		AllowOrigins: []string{
+			"http://localhost",
+			"https://mock-api.refinepoint.com",
+			"https://mock-response.refinepoint.com",
+			"https://mockapi.refinepoint.com",
+			"https://mockapi-docs.refinepoint.com",
+		},
+		AllowMethods:     []string{"PUT", "PATCH"},
+		AllowHeaders:     []string{"Origin"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: true,
+		AllowOriginFunc: func(origin string) bool {
+			return origin == "http://localhost" ||
+				origin == "https://mock-api.refinepoint.com" ||
+				origin == "https://mock-response.refinepoint.com" ||
+				origin == "https://mockapi.refinepoint.com" ||
+				origin == "https://mockapi-docs.refinepoint.com"
+		},
+		MaxAge: 12 * time.Hour,
+	}))
 	store := persistence.NewInMemoryStore(time.Hour)
+
+	router.StaticFile("/", "./index.html")
 
 	router.GET("/mockdata/samples", cache.CachePage(store, time.Hour, func(c *gin.Context) {
 		// Get the size query parameter
@@ -85,9 +108,8 @@ func main() {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid delay parameter"})
 			return
 		}
-
 		// Get the jsonFields query parameter
-		jsonFieldsParam := c.DefaultQuery("_jsonFields", "") // Default to empty (no fields specified)
+		jsonFieldsParam := c.DefaultQuery("_fields", "") // Default to empty (no fields specified)
 
 		// Set encloseInArray based on size
 		encloseInArrayStr := "true"
@@ -96,11 +118,8 @@ func main() {
 		}
 		encloseInArray, _ := strconv.ParseBool(encloseInArrayStr)
 
-		log.Println("ghjgh ", encloseInArrayStr, encloseInArray)
-
 		jsonFields := strings.Split(jsonFieldsParam, ",") // Split into a slice
 
-		log.Println("Enclosed in array!")
 		for i, field := range jsonFields {
 			jsonFields[i] = strings.TrimSpace(field) // Trim spaces around each field
 		}
@@ -115,29 +134,25 @@ func main() {
 				continue
 			}
 			if !isValidParamName(values[0]) {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid query parameter: " + paramName})
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid query parameter: " + paramName + "system columns(size , delay , encloseInArray , type should begin with _ )"})
 				return
 			}
 			additionalParams[paramName] = values[0] // Single value, store directly
 
 		}
 
-		// Introduce the specified delay
 		if delay > 0 {
 			time.Sleep(time.Duration(delay) * time.Millisecond) // Delay in milliseconds
 		}
 
-		// Generate custom dummy JSON based on the specified fields and size
 		dummyData, err := mockdata.GenerateCustomJSON(size, jsonFields, additionalParams, encloseInArray)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-
-		// Return the generated custom dummy data as JSON
 		c.JSON(http.StatusOK, dummyData)
 	}))
-	// Route to return mock data for a specific project and ID
+
 	router.Any("/c/:projectid/:id", cache.CachePage(store, time.Hour, func(c *gin.Context) {
 
 		method := c.Request.Method
