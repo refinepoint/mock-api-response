@@ -69,7 +69,7 @@ func main() {
 	router := gin.Default()
 	router.Use(cors.New(cors.Config{
 		AllowOrigins: []string{
-			"http://localhost",
+			"http://localhost:8000",
 			"https://mock-api.refinepoint.com",
 			"https://mock-response.refinepoint.com",
 			"https://mockapi.refinepoint.com",
@@ -80,7 +80,7 @@ func main() {
 		ExposeHeaders:    []string{"Content-Length"},
 		AllowCredentials: true,
 		AllowOriginFunc: func(origin string) bool {
-			return origin == "http://localhost" ||
+			return origin == "http://localhost:8000" ||
 				origin == "https://mock-api.refinepoint.com" ||
 				origin == "https://mock-response.refinepoint.com" ||
 				origin == "https://mockapi.refinepoint.com" ||
