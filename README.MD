@@ -1,68 +1,22 @@
-# Test benchmark connection pooling in Go with Postgres
-#### Author: kienmatu
+# Go Project
 
-## Introduction
-This is a simple project to test benchmark connection pooling in Go with Postgres. 
-The purpose of this project is to compare the performance of three different methods of handling database connections: 
-- Using connection pooling
-- Creating new connections each time
-- And using a single connection.
+## Overview
+This is a simple Go project that demonstrates how to generate custom JSON objects, manage addresses, and other utilities. The project includes the following core features:
 
-### Installation and Usage:
+- **JSON Generation**: Generates custom JSON data based on field names and additional parameters.
+- **Address Management**: Contains a list of global addresses (from various countries and regions).
 
-To run this project, you will need to have Go and docker installed on your system.
-Once you have installed these dependencies, you can follow the steps below:
+## Requirements
+- Go 1.18 or higher
+- [Golang Modules](https://golang.org/doc/go1.11#modules) enabled
 
-Clone the repository:
+## Installation
 
-```bash
-git clone https://github.com/kienmatu/go-connection-pooling-test.git
-cd go-connection-pooling-benchmark
-```
-
-Install the required dependencies:
+### Clone the repository
+To start using this project, first clone the repository:
 
 ```bash
-go mod download
-```
-Start the Postgres server using Docker Compose:
+git clone https://github.com/your-username/go-project.git
+cd go-project
 
-```bash
-docker-compose up -d
-```
-Wait for 1 minute for the data to be seeded.
-
-Run the Sample API:
-```bash
-go run main.go
-```
-
-Install Go-wrk
-```bash
-go install github.com/tsliwowicz/go-wrk@latest
-```
-### Test Benchmark
-Now you can run the benchmark tests separately using go-wrk:
-
-```bash
-go-wrk -c 10 http://localhost:8080/products/pooled
-go-wrk -c 10 http://localhost:8080/products/normal
-go-wrk -c 10 http://localhost:8080/products/new
-```
-
-The results of each test will be displayed in the terminal.
-
-### Test elapsed time
-Or you can test it with the `index.html` file:
-
-![test.png](test.png)
-
-### How many connections is the best fit for pool size?
-Actually, I set 50 and 90 for the first time bench, after that I realize that too much number of connections is not efficient.
-
-The efficient number of connection pool size should be the same as your server/machine's physical number of cores.
-
-I tested with 4 for both idle connections and max pool size, and the result nearly the same with 50 idle and 90 max conns.
-
-
-I just also added the code in expressjs (but yeah, of course, the performance can not be strong as Go).
+This `README.md` file provides a complete guide on setting up and using the Go-based JSON generation and global address management application. You can modify it according to the specific features or details of your project.
