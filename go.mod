@@ -1,4 +1,4 @@
-module github.com/kienmatu/go-connection-pooling
+module github.com/refinepoint/mock-api-response
 
 go 1.21.0
 

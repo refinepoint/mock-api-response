@@ -15,8 +15,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
 	"github.com/joho/godotenv"
-	"github.com/kienmatu/go-connection-pooling/mockdata"
 	_ "github.com/lib/pq"
+	"github.com/refinepoint/mock-api-response/mockdata"
 )
 
 type MockData struct {
@@ -71,7 +71,7 @@ func main() {
 
 	router.GET("/mockdata/samples", cache.CachePage(store, time.Hour, func(c *gin.Context) {
 		// Get the size query parameter
-		sizeParam := c.DefaultQuery("size", "128") // Default size is 128
+		sizeParam := c.DefaultQuery("_size", "1") // Default size is 128
 		size, err := strconv.Atoi(sizeParam)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid size parameter"})
@@ -79,7 +79,7 @@ func main() {
 		}
 
 		// Get the delay query parameter
-		delayParam := c.DefaultQuery("delay", "0") // Default delay is 0 (no delay)
+		delayParam := c.DefaultQuery("_delay", "0") // Default delay is 0 (no delay)
 		delay, err := strconv.Atoi(delayParam)
 		if err != nil || delay < 0 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid delay parameter"})
@@ -87,8 +87,20 @@ func main() {
 		}
 
 		// Get the jsonFields query parameter
-		jsonFieldsParam := c.DefaultQuery("jsonFields", "") // Default to empty (no fields specified)
-		jsonFields := strings.Split(jsonFieldsParam, ",")   // Split into a slice
+		jsonFieldsParam := c.DefaultQuery("_jsonFields", "") // Default to empty (no fields specified)
+
+		// Set encloseInArray based on size
+		encloseInArrayStr := "true"
+		if size == 1 {
+			encloseInArrayStr = c.DefaultQuery("_encloseInArray", "false")
+		}
+		encloseInArray, _ := strconv.ParseBool(encloseInArrayStr)
+
+		log.Println("ghjgh ", encloseInArrayStr, encloseInArray)
+
+		jsonFields := strings.Split(jsonFieldsParam, ",") // Split into a slice
+
+		log.Println("Enclosed in array!")
 		for i, field := range jsonFields {
 			jsonFields[i] = strings.TrimSpace(field) // Trim spaces around each field
 		}
@@ -99,7 +111,7 @@ func main() {
 		// Loop through all query parameters manually
 		for paramName, values := range c.Request.URL.Query() {
 			// Skip common parameters
-			if paramName == "size" || paramName == "delay" || paramName == "jsonFields" {
+			if strings.HasPrefix(paramName, "_") {
 				continue
 			}
 			if !isValidParamName(values[0]) {
@@ -116,7 +128,7 @@ func main() {
 		}
 
 		// Generate custom dummy JSON based on the specified fields and size
-		dummyData, err := mockdata.GenerateCustomJSON(size, jsonFields, additionalParams)
+		dummyData, err := mockdata.GenerateCustomJSON(size, jsonFields, additionalParams, encloseInArray)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -158,7 +170,7 @@ func main() {
 	// Route to create mock data
 	router.POST("/mockdata", func(c *gin.Context) {
 		projectID := c.DefaultQuery("projectid", "")
-		method := c.DefaultQuery("method", "put")
+		method := c.DefaultQuery("method", "GET")
 		methodQuery := strings.ToUpper(method)
 
 		if projectID == "" {
@@ -205,7 +217,7 @@ func main() {
 
 // Function to check if the query parameter name is valid
 func isValidParamName(paramName string) bool {
-	validParams := []string{"uuid", "uid", "number", "decimal", "float", "long", "integer", "text", "string", "phone", "boolean"}
+	validParams := []string{"uuid", "uid", "id", "number", "decimal", "float", "long", "integer", "text", "string", "phone", "boolean", "date", "datetime", "time", "email", "mail"}
 	for _, valid := range validParams {
 		if paramName == valid {
 			return true

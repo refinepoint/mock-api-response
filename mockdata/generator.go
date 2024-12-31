@@ -3,7 +3,6 @@ package mockdata
 import (
 	"errors"
 	"fmt"
-	"log"
 	"math/rand"
 	"strconv"
 	"strings"
@@ -118,30 +117,65 @@ func generateDummyJSON(size int) ([]map[string]interface{}, error) {
 	return dummyData, nil
 }
 
-func generateFieldMap(fields []string, additionalParams map[string]string) map[string]string {
+//
+
+func generateFieldMap(fields []string, additionalParams map[string]string) map[string]interface{} {
 	// If additionalParams is nil, initialize it as an empty map
 	if additionalParams == nil {
 		additionalParams = make(map[string]string)
 	}
 
+	fieldMap := make(map[string]interface{})
+
 	if len(fields) == 0 {
-		return additionalParams
+		// Copy all values from additionalParams as is
+		for key, value := range additionalParams {
+			fieldMap[key] = value
+		}
+		return fieldMap
 	}
-	// Populate the additionalParams with the fields, assigning empty strings if not already present
+
+	// Populate the fieldMap with fields and additionalParams
 	for _, field := range fields {
-		// If the field does not exist, assign an empty string to it
-		// Only add the field if it doesn't already exist and the field is not empty
 		if field != "" {
-			if _, exists := additionalParams[field]; !exists {
-				additionalParams[field] = "" // Add the field with an empty value (or modify if necessary)
+			addNestedField(fieldMap, field, "")
+		}
+	}
+	for key, value := range additionalParams {
+		addNestedField(fieldMap, key, value)
+
+	}
+	return fieldMap
+}
+
+// Function to add nested fields into a map
+func addNestedField(fieldMap map[string]interface{}, field string, value interface{}) {
+	parts := strings.Split(field, ".")
+	current := fieldMap
+
+	for i, part := range parts {
+		// If it's the last part, set the value
+		if i == len(parts)-1 {
+			current[part] = value
+		} else {
+			// If the part doesn't exist or isn't a map, create a new map
+			if _, exists := current[part]; !exists {
+				current[part] = make(map[string]interface{})
+			}
+
+			// Move deeper into the nested map
+			if next, ok := current[part].(map[string]interface{}); ok {
+				current = next
+			} else {
+				// Handle case where the key already exists but isn't a map
+				current[part] = make(map[string]interface{})
+				current = current[part].(map[string]interface{})
 			}
 		}
 	}
-
-	// Return the modified additionalParams
-	return additionalParams
 }
-func GenerateCustomJSON(size int, fields []string, additionalParams map[string]string) ([]map[string]interface{}, error) {
+
+func GenerateCustomJSON(size int, fields []string, additionalParams map[string]string, encloseInArray bool) (interface{}, error) {
 	if size <= 0 {
 		return nil, errors.New("size must be greater than zero")
 	}
@@ -150,27 +184,21 @@ func GenerateCustomJSON(size int, fields []string, additionalParams map[string]s
 	fieldMap := generateFieldMap(fields, additionalParams)
 	// Check if fieldMap is nil or empty
 	if len(fieldMap) == 0 || isMapEmpty(fieldMap) {
-		log.Println("fieldMap is either nil, empty, or contains only empty values, generating dummy JSON...")
 		return generateDummyJSON(size)
 	}
-	//	return generateDummyJSON(size)
+
+	if size == 1 && !encloseInArray {
+		// Generate a single JSON object when size is 1
+		obj := make(map[string]interface{})
+		populateNestedFields(obj, fieldMap)
+		return obj, nil
+	}
+
 	var result []map[string]interface{}
 	for i := 0; i < size; i++ {
-		// Initialize a new map for the JSON object
+		// Generate JSON object with nested fields
 		obj := make(map[string]interface{})
-
-		// Populate the map with generated values based on the fieldMap
-		for field, value := range fieldMap {
-			// Call generateValueBasedOnField to determine the value for each field
-			// Pass the field and existing value from fieldMap
-			value, err := generateValueBasedOnField(field, value)
-
-			if err != nil {
-				return nil, err
-			}
-			// Set the value in the map
-			obj[field] = value
-		}
+		populateNestedFields(obj, fieldMap)
 
 		// Add the generated object to the result slice
 		result = append(result, obj)
@@ -179,17 +207,46 @@ func GenerateCustomJSON(size int, fields []string, additionalParams map[string]s
 	return result, nil
 }
 
-func isMapEmpty(fieldMap map[string]string) bool {
-	// If the map has exactly one key and that key is an empty string, it's considered empty
-	if len(fieldMap) == 1 {
-		for key := range fieldMap {
-			if key == "" {
+// Function to populate nested fields with values
+func populateNestedFields(obj map[string]interface{}, fieldMap map[string]interface{}) {
+	for key, value := range fieldMap {
+		switch v := value.(type) {
+		case map[string]interface{}:
+			// Create a nested map if necessary
+			if _, exists := obj[key]; !exists {
+				obj[key] = make(map[string]interface{})
+			}
+			// Recursively populate nested fields
+			if nestedObj, ok := obj[key].(map[string]interface{}); ok {
+				populateNestedFields(nestedObj, v)
+			}
+		default:
+			// Generate value based on the field
+			strValue, _ := v.(string)
+
+			generatedValue, err := generateValueBasedOnField(key, strValue)
+			if err == nil {
+				obj[key] = generatedValue
+			}
+		}
+	}
+}
+
+func isMapEmpty(fieldMap map[string]interface{}) bool {
+	for key, value := range fieldMap {
+		// Check if key or value is empty
+		if key == "" {
+			return true
+		}
+
+		// Check for nested maps recursively
+		if nestedMap, ok := value.(map[string]interface{}); ok {
+			if isMapEmpty(nestedMap) {
 				return true
 			}
 		}
 	}
 
-	// If the map has no keys, it's considered empty
 	return len(fieldMap) == 0
 }
 
@@ -198,14 +255,16 @@ func generateValueBasedOnFieldAndType(fieldType string) (interface{}, error) {
 	// Implement your type-based value generation logic here
 	fieldType = strings.ToLower(fieldType)
 	switch fieldType {
-	case "uuid":
-		return uuid.NewString(), nil
-	case "uid":
+	case "uuid", "uid", "id":
 		return uuid.NewString(), nil
 	case "phone":
 		return generateRandomPhone(), nil
 	case "number", "integer":
 		return rand.Intn(100) + 100, nil
+	case "date", "datetime", "time":
+		return generateRandomDatetime(), nil
+	case "email", "mail":
+		return generateRandomEmail(), nil
 	case "long":
 		return rand.Int63(), nil
 	case "float", "decimal":
@@ -277,20 +336,87 @@ func normalizeFieldName(field string) string {
 
 // Function to generate a random name (single word or two words)
 func generateRandomName() string {
-	names := []string{"John", "Alice", "Bob", "Sara", "Charlie", "David", "Eve", "Sophia", "James", "Lily",
-		"Michael", "Anna", "Luke", "Grace", "Oliver", "Emily", "Noah", "Amelia", "Jack", "Ella", "Lucas"}
+	names := []string{
+		"John", "Alice", "Bob", "Sara", "Charlie", "David", "Eve", "Sophia", "James", "Lily",
+		"Michael", "Anna", "Luke", "Grace", "Oliver", "Emily", "Noah", "Amelia", "Jack", "Ella", "Lucas",
+
+		// Indian Names
+		"Aarav", "Ishaan", "Vivaan", "Aditya", "Krishna", "Saanvi", "Ananya", "Diya", "Rohan", "Aadhya",
+		"Priya", "Kavya", "Raj", "Anil", "Simran", "Neha", "Amit", "Pooja", "Rani", "Shivani", "Mohit",
+		"Varun", "Shreya", "Manish", "Geeta", "Madhavi", "Ravi", "Meera", "Ritika", "Sunil", "Pankaj",
+
+		// Japanese Names
+		"Hiroshi", "Yuki", "Haruto", "Sakura", "Takumi", "Yui", "Riku", "Miyu", "Ren", "Aiko",
+		"Kaito", "Emi", "Taro", "Hina", "Yuuto", "Rika", "Satoshi", "Aya", "Shun", "Yoshiko", "Kenta",
+		"Sayaka", "Sho", "Rena", "Kumi", "Koji", "Mai", "Daiki", "Nanami", "Shiori", "Eiko",
+
+		// Tamil Names
+		"Arjun", "Karthik", "Vijay", "Rajesh", "Sivakumar", "Anjali", "Kavitha", "Sneha", "Ravi", "Nisha",
+		"Ganesh", "Priya", "Saravanan", "Lavanya", "Pavithra", "Hari", "Lakshmi", "Vignesh", "Selvi", "Sundar",
+		"Mani", "Sindhu", "Krithika", "Suresh", "Madhavi", "Meenakshi", "Gokul", "Pooja", "Karthika", "Bhavani",
+
+		// Chinese Names
+		"Li Wei", "Wang Wei", "Li Na", "Zhang Wei", "Liu Yang", "Chen Xi", "Wang Fang", "Zhao Li", "Li Jing", "Wang Jun",
+		"Li Mei", "Yang Li", "Zhang Jing", "Liu Feng", "Chen Li", "Li Hong", "Zhao Yan", "Wang Lei", "Chen Wei", "Li Yun",
+		"Yang Mei", "Liu Jin", "Zhao Hong", "Wang Hui", "Zhang Fang", "Li Ping", "Chen Jing", "Yang Wei", "Wang Xue", "Li Fang",
+	}
 
 	// Randomly select one or two words from the list
-	firstName := names[rand.Intn(len(names))]
-	secondName := names[rand.Intn(len(names))]
+	firstName := names[rand.Intn(140)]
+	secondName := names[rand.Intn(140)]
 	return firstName + " " + secondName
 }
 
 // Function to generate a random address
 func generateRandomAddress() string {
+
 	addresses := []string{
 		"123 Elm St", "456 Oak Ave", "789 Pine Rd", "321 Maple Blvd", "654 Birch Ln",
 		"1012 Cherry Ln", "2023 Walnut Dr", "4050 Pinewood Rd", "7075 Cedar Park", "1001 Sunset Blvd",
+
+		// India Addresses
+		"1 MG Road, Bangalore, Karnataka, India", "10 Connaught Place, New Delhi, India", "33 Nehru Place, Delhi, India",
+		"58 Bandra West, Mumbai, Maharashtra, India", "11 Park Street, Kolkata, West Bengal, India",
+		"45 Marine Drive, Mumbai, Maharashtra, India", "12 Brigade Road, Bangalore, Karnataka, India", "7 Juhu Beach, Mumbai, India",
+		"21 Rajaji Salai, Chennai, Tamil Nadu, India", "101 Lower Tank Bund, Hyderabad, Telangana, India",
+
+		// UK Addresses
+		"221B Baker Street, London, UK", "10 Downing Street, London, UK", "5 The Crescent, Birmingham, UK",
+		"4 St Andrew's Square, Edinburgh, Scotland", "12 Oxford Street, Manchester, UK", "56 King Street, London, UK",
+		"20 Abbey Road, London, UK", "8 Victoria Street, London, UK", "34 High Street, Glasgow, Scotland", "7 Princes Street, Edinburgh, UK",
+
+		// USA Addresses
+		"1600 Pennsylvania Ave NW, Washington, DC, USA", "742 Evergreen Terrace, Springfield, USA", "101 California St, San Francisco, CA, USA",
+		"350 5th Ave, New York, NY, USA", "1000 16th St NW, Washington, DC, USA", "4750 Drexel Dr, Los Angeles, CA, USA",
+		"200 E 74th St, New York, NY, USA", "12345 Sunset Blvd, Los Angeles, CA, USA", "789 Beach Ave, Miami, FL, USA",
+		"2020 W Broadway, Vancouver, BC, Canada",
+
+		// Australia Addresses
+		"100 Collins St, Melbourne, VIC, Australia", "123 Pitt St, Sydney, NSW, Australia", "22 George St, Brisbane, QLD, Australia",
+		"88 Queen St, Melbourne, VIC, Australia", "43 Bondi Beach, Sydney, NSW, Australia", "150 Swanston St, Melbourne, VIC, Australia",
+		"11 Southbank, Sydney, NSW, Australia", "28 King St, Melbourne, VIC, Australia", "9 Circular Quay, Sydney, NSW, Australia",
+		"5 Phillip St, Sydney, NSW, Australia",
+
+		// Canada Addresses
+		"1 Yonge St, Toronto, ON, Canada", "123 Main St, Vancouver, BC, Canada", "56 Bay St, Toronto, ON, Canada",
+		"44 Spadina Ave, Toronto, ON, Canada", "12 Richmond St, Ottawa, ON, Canada", "888 St. Denis St, Montreal, QC, Canada",
+		"555 King St W, Toronto, ON, Canada", "87 Wellington St W, Toronto, ON, Canada", "1200 Steeles Ave, Toronto, ON, Canada",
+		"1050 Rue St. Paul E, Montreal, QC, Canada",
+
+		// European Addresses
+		"5 Rue de la Paix, Paris, France", "30 Via Roma, Rome, Italy", "7 Bahnhofstrasse, Zurich, Switzerland",
+		"25 Oxford St, London, UK", "21 Elizabetta St, Milan, Italy", "10 Av. des Champs-Élysées, Paris, France",
+		"15 Puerta del Sol, Madrid, Spain", "42 Königsstraße, Berlin, Germany", "9 Les Champs-Élysées, Paris, France", "23 Rue des Archers, Brussels, Belgium",
+
+		// Middle East Addresses
+		"6 Sheikh Zayed Road, Dubai, UAE", "25 Corniche Rd, Abu Dhabi, UAE", "120 Jeddah St, Riyadh, Saudi Arabia",
+		"8 Al Haram St, Cairo, Egypt", "19 Al Faisaliyah, Riyadh, Saudi Arabia", "3 Khaled Bin Waleed St, Sharjah, UAE",
+		"77 Beirut Street, Lebanon", "45 Al Ahram St, Cairo, Egypt", "22 Mohammed Bin Rashid Blvd, Dubai, UAE", "112 Dubai Marina, Dubai, UAE",
+
+		// African Addresses
+		"12 Nelson Mandela Dr, Pretoria, South Africa", "34 Victoria Island, Lagos, Nigeria", "5 Harare Rd, Harare, Zimbabwe",
+		"77 Anwar St, Nairobi, Kenya", "150 Nkrumah Ave, Accra, Ghana", "8 Tanganyika Rd, Dar Es Salaam, Tanzania", "10 Pali Hill, Mumbai, India",
+		"6 Independence Ave, Windhoek, Namibia", "21 Kombo Beach, Banjul, Gambia", "42 Cairo St, Cairo, Egypt",
 	}
 
 	return addresses[rand.Intn(len(addresses))]
@@ -304,7 +430,7 @@ func generateRandomPhone() string {
 	rand.Seed(time.Now().UnixNano())
 
 	// Randomly select a country code (example: +1 for USA, +44 for UK)
-	countryCodes := []string{"+1", "+44", "+91", "+61", "+49", "+33", "+81", "+55"}
+	countryCodes := []string{"+1", "+44", "+91", "+61", "+49", "+33", "+81", "+55", "+0 "}
 	countryCode := countryCodes[rand.Intn(len(countryCodes))]
 
 	// Generate a 10-digit phone number
