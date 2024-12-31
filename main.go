@@ -75,11 +75,12 @@ func main() {
 			"https://mockapi.refinepoint.com",
 			"https://mockapi-docs.refinepoint.com",
 		},
-		AllowMethods:     []string{"PUT", "PATCH"},
-		AllowHeaders:     []string{"Origin"},
-		ExposeHeaders:    []string{"Content-Length"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}, // Allow all HTTP methods
+		AllowHeaders:     []string{"*"},                                                // Allow all headers
+		ExposeHeaders:    []string{"*"},                                                // Expose all headers to the browser
 		AllowCredentials: true,
 		AllowOriginFunc: func(origin string) bool {
+			// Allow specific origins
 			return origin == "http://localhost:8000" ||
 				origin == "https://mock-api.refinepoint.com" ||
 				origin == "https://mock-response.refinepoint.com" ||
