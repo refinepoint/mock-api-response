@@ -424,7 +424,7 @@ func generateRandomAddress() string {
 
 // Function to generate a random contact (phone number or email)
 func generateRandomEmail() string {
-	return generateRandomName() + "@refinepoint.com"
+	return strings.ReplaceAll(generateRandomName(), " ", ".") + "@rpoint.com"
 }
 func generateRandomPhone() string {
 	rand.Seed(time.Now().UnixNano())
